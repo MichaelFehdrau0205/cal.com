@@ -4,6 +4,7 @@ import type { DailyCall } from "@daily-co/daily-js";
 import { useDaily, useDailyEvent, useRecording, useTranscription } from "@daily-co/daily-react";
 import React, { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { BUTTONS } from "./button-states";
+import { useLiveCaptions } from "./useLiveCaptions";
 
 export type DailyCustomTrayButtonVisualState = "default" | "sidebar-open" | "active";
 
@@ -181,6 +182,8 @@ export const CalVideoPremiumFeatures = ({
 
   const transcription = useTranscription();
   const recording = useRecording();
+
+  useLiveCaptions();
 
   const callbacks = createCalVideoCallbacks({
     daily,
