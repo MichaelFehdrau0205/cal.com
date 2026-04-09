@@ -910,6 +910,8 @@
   "description": "Description",
   "apps_status": "Apps status",
   "quick_video_meeting": "A quick video meeting.",
+  "cal_video_cc": "CC",
+  "cal_video_cc_toggle_label": "Toggle closed captions overlay",
   "scheduling_type": "Scheduling type",
   "preview_team": "Preview team",
   "collective": "Collective",

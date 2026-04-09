@@ -1,8 +1,8 @@
+import { useLocale } from "@calcom/lib/hooks/useLocale";
+import { Button, type ButtonColor } from "@calcom/ui/components/button";
 import type { DailyCall } from "@daily-co/daily-js";
-import { useTranscription, useRecording } from "@daily-co/daily-react";
-import { useDaily, useDailyEvent } from "@daily-co/daily-react";
-import React, { Fragment, useCallback, useRef, useState, useLayoutEffect, useEffect } from "react";
-
+import { useDaily, useDailyEvent, useRecording, useTranscription } from "@daily-co/daily-react";
+import React, { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { BUTTONS } from "./button-states";
 
 export type DailyCustomTrayButtonVisualState = "default" | "sidebar-open" | "active";
@@ -171,9 +171,12 @@ export const CalVideoPremiumFeatures = ({
   enableAutomaticRecordingForOrganizer: boolean;
   showTranscriptionButton: boolean;
 }) => {
+  const { t } = useLocale();
   const daily = useDaily();
   const [transcript, setTranscript] = useState("");
   const [transcriptHeight, setTranscriptHeight] = useState(0);
+  /** Local UI only; TODO: persist preference via user settings / API when backend is ready */
+  const [ccOverlayOpen, setCcOverlayOpen] = useState(true);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
 
   const transcription = useTranscription();
@@ -205,43 +208,66 @@ export const CalVideoPremiumFeatures = ({
   useDailyEvent("custom-button-click", callbacks.onCustomButtonClick);
 
   useLayoutEffect(() => {
+    const el = transcriptRef.current;
+    if (!el || !ccOverlayOpen) return;
+
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         setTranscriptHeight(entry.target.scrollHeight);
       }
     });
 
-    if (transcriptRef.current) {
-      observer.observe(transcriptRef.current);
-    }
+    observer.observe(el);
 
     return () => observer.disconnect();
-  }, []);
+  }, [ccOverlayOpen, transcript]);
 
   useEffect(() => {
+    if (!ccOverlayOpen) return;
     transcriptRef.current?.scrollTo({
       top: transcriptRef.current?.scrollHeight,
       behavior: "smooth",
     });
-  }, [transcriptHeight]);
+  }, [transcriptHeight, ccOverlayOpen]);
 
-  return transcript ? (
-    <div
-      id="cal-ai-transcription"
-      style={{
-        textShadow: "0 0 20px black, 0 0 20px black, 0 0 20px black",
-        backgroundColor: "rgba(0,0,0,0.6)",
-      }}
-      ref={transcriptRef}
-      className="flex max-h-full justify-center overflow-x-hidden overflow-y-scroll p-2 text-center text-white">
-      {transcript
-        ? transcript.split("\n").map((line, i) => (
+  let ccButtonColor: ButtonColor = "secondary";
+  if (ccOverlayOpen) {
+    ccButtonColor = "primary";
+  }
+
+  const toggleCcOverlay = (): void => {
+    setCcOverlayOpen((open) => !open);
+  };
+
+  return (
+    <div className="flex max-w-md flex-col items-center gap-2">
+      <Button
+        type="button"
+        color={ccButtonColor}
+        size="sm"
+        className="min-w-12"
+        aria-pressed={ccOverlayOpen}
+        aria-label={t("cal_video_cc_toggle_label")}
+        onClick={toggleCcOverlay}>
+        {t("cal_video_cc")}
+      </Button>
+      {ccOverlayOpen && !!transcript && (
+        <div
+          id="cal-ai-transcription"
+          style={{
+            textShadow: "0 0 20px black, 0 0 20px black, 0 0 20px black",
+            backgroundColor: "rgba(0,0,0,0.6)",
+          }}
+          ref={transcriptRef}
+          className="flex max-h-full justify-center overflow-x-hidden overflow-y-scroll p-2 text-center text-white">
+          {transcript.split("\n").map((line, i) => (
             <Fragment key={`transcript-${i}`}>
               {i > 0 && <br />}
               {line}
             </Fragment>
-          ))
-        : ""}
+          ))}
+        </div>
+      )}
     </div>
-  ) : null;
+  );
 };

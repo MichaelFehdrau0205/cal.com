@@ -4,7 +4,7 @@ import type { AppMeta } from "@calcom/types/App";
 export const metadata = {
   name: "Cal Video",
   description:
-    "Cal Video is the in-house web-based video conferencing platform powered by Daily.co, which is minimalistic and lightweight, but has most of the features you need.",
+    "Cal Video is the in-house web-based video conferencing platform powered by Daily.co, which is minimalistic and lightweight, but has most of the features you need. Closed captions available.",
   installed: !!process.env.DAILY_API_KEY,
   type: "daily_video",
   variant: "conferencing",
