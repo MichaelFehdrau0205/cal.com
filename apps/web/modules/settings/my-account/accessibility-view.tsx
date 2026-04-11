@@ -14,7 +14,7 @@ import { Label } from "@calcom/ui/components/form/inputs/Label";
 import { showToast } from "@calcom/ui/components/toast";
 import type { CheckedState } from "@radix-ui/react-checkbox";
 import type { ReactElement } from "react";
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type MeUser = RouterOutputs["viewer"]["me"]["get"];
 
@@ -55,6 +55,22 @@ const emptyForm: AccessibilityFormState = {
   dyslexiaReadingDictation: false,
   dyslexiaBrowserExtension: false,
 };
+
+/** Stable compare: `JSON.stringify` order follows insertion order, which can differ between `form` and `saved`. */
+const ACCESSIBILITY_FORM_KEYS = Object.keys(emptyForm) as (keyof AccessibilityFormState)[];
+
+function accessibilityFormFingerprint(state: AccessibilityFormState): string {
+  return JSON.stringify(ACCESSIBILITY_FORM_KEYS.map((key) => [key, state[key]] as const));
+}
+
+function accessibilityFormFromFingerprint(fingerprint: string): AccessibilityFormState {
+  const pairs = JSON.parse(fingerprint) as [keyof AccessibilityFormState, boolean][];
+  const next: AccessibilityFormState = { ...emptyForm };
+  for (const [key, value] of pairs) {
+    next[key] = value;
+  }
+  return next;
+}
 
 type FieldRowSpec = {
   formKey: keyof AccessibilityFormState;
@@ -123,9 +139,16 @@ const DYSLEXIA_FIELDS: FieldRowSpec[] = [
   },
 ];
 
-function legacyStoredValueToChecked(value: unknown): boolean {
-  if (typeof value === "boolean") {
-    return value;
+/**
+ * Treat only clear affirmatives as checked. Unknown strings stay off so junk metadata does not
+ * imply consent; still accept common legacy tokens saved by older clients.
+ */
+function metadataValueMeansOptedIn(value: unknown): boolean {
+  if (value === true) {
+    return true;
+  }
+  if (value === false || value === null || value === undefined) {
+    return false;
   }
   if (typeof value !== "string") {
     return false;
@@ -134,7 +157,10 @@ function legacyStoredValueToChecked(value: unknown): boolean {
   if (v === "" || v === "false" || v === "0") {
     return false;
   }
-  return true;
+  if (v === CHECKBOX_TRUE || v === "1" || v === "yes" || v === "on") {
+    return true;
+  }
+  return false;
 }
 
 const pickInclusiveMetadataChecked = (
@@ -144,10 +170,13 @@ const pickInclusiveMetadataChecked = (
 ): boolean => {
   const next = merged[inclusiveKey];
   if (next !== undefined && next !== null) {
-    return legacyStoredValueToChecked(next);
+    return metadataValueMeansOptedIn(next);
   }
   const legacy = merged[legacyAccessibilityKey];
-  return legacyStoredValueToChecked(legacy);
+  if (legacy === undefined || legacy === null) {
+    return false;
+  }
+  return metadataValueMeansOptedIn(legacy);
 };
 
 const getFormFromUser = (user: MeUser | undefined): AccessibilityFormState => {
@@ -262,16 +291,17 @@ function InclusiveCheckboxRow({
   isDisabled,
   t,
 }: CheckboxRowProps): ReactElement {
-  const baseId = useId();
   return (
     <div className={inclusiveFieldStripClass}>
       {fields.map((f) => {
-        const id = `${baseId}-${f.name}`;
+        // Deterministic ids: `useId` can diverge on hydration when parent `key` or tree order differs between SSR and client.
+        const id = `accessibility-inclusive-${f.name}`;
         return (
           <div key={f.name} className="flex min-w-0 flex-row items-center gap-2">
             <Checkbox
               id={id}
-              checked={form[f.formKey]}
+              checked={Boolean(form[f.formKey])}
+              className="border border-gray-400 bg-white data-[state=checked]:border-black data-[state=checked]:bg-black data-[state=checked]:text-white dark:border-gray-500 dark:bg-gray-950 dark:data-[state=checked]:border-black dark:data-[state=checked]:bg-black dark:data-[state=checked]:text-white"
               onCheckedChange={(state: CheckedState) => onCheckedChange(f.formKey, state === true)}
               disabled={isDisabled}
             />
@@ -291,15 +321,22 @@ const AccessibilityView = (): ReactElement => {
   const { t } = useLocale();
   const utils = trpc.useUtils();
 
-  const { data: user, isPending: isUserLoading } = trpc.viewer.me.get.useQuery();
+  const { data: user, isPending: isUserLoading } = trpc.viewer.me.get.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
 
-  const saved = useMemo(() => getFormFromUser(user), [user]);
+  // Fingerprint so we only react to real server changes (React Query often replaces `user` with a
+  // new reference on refetch). Use a canonical string — not raw JSON.stringify of the object —
+  // so `isDirty` matches the UI even when key insertion order differs between `form` and `saved`.
+  const savedFingerprint = useMemo(() => accessibilityFormFingerprint(getFormFromUser(user)), [user]);
+  const saved = useMemo(() => accessibilityFormFromFingerprint(savedFingerprint), [savedFingerprint]);
 
-  const [form, setForm] = useState<AccessibilityFormState>(emptyForm);
+  const [form, setForm] = useState<AccessibilityFormState>({ ...emptyForm });
 
+  // Sync only when server-derived fingerprint changes — not when `saved` object identity changes.
   useEffect(() => {
-    setForm(saved);
-  }, [saved]);
+    setForm(accessibilityFormFromFingerprint(savedFingerprint));
+  }, [savedFingerprint]);
 
   const updateProfile = trpc.viewer.me.updateProfile.useMutation({
     onSuccess: async () => {
@@ -311,10 +348,16 @@ const AccessibilityView = (): ReactElement => {
     },
   });
 
-  const isDirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(saved), [form, saved]);
+  const isDirty = useMemo(
+    () => accessibilityFormFingerprint(form) !== accessibilityFormFingerprint(saved),
+    [form, saved]
+  );
+
+  /** Primary Save only when the form differs from the server — gray on first paint / when fully in sync. */
+  const isSaveDisabled = (!user && isUserLoading) || updateProfile.isPending || !isDirty;
 
   const handleCancel = (): void => {
-    setForm(saved);
+    setForm({ ...saved });
   };
 
   const handleSave = (): void => {
@@ -326,7 +369,17 @@ const AccessibilityView = (): ReactElement => {
     setForm((prev) => ({ ...prev, [key]: checked }));
   }, []);
 
-  const disabled = isUserLoading || updateProfile.isPending;
+  /** Avoid graying inputs on background refetch once `user` exists — only block while saving or initial load. */
+  const checkboxesDisabled = updateProfile.isPending || (!user && isUserLoading);
+
+  let saveButtonStateClass: string;
+  if (isSaveDisabled) {
+    saveButtonStateClass =
+      "border-gray-400 bg-gray-400 text-white shadow-none hover:border-gray-400 hover:bg-gray-400 disabled:opacity-100";
+  } else {
+    saveButtonStateClass =
+      "border-black bg-black text-white shadow-none hover:border-gray-900 hover:bg-gray-900 hover:shadow-none active:bg-gray-950 active:shadow-none disabled:opacity-100";
+  }
 
   return (
     <SettingsHeader
@@ -337,7 +390,7 @@ const AccessibilityView = (): ReactElement => {
       <div
         className={classNames(
           "rounded-b-xl border-subtle border-x border-b",
-          isUserLoading && "pointer-events-none opacity-60"
+          !user && isUserLoading && "pointer-events-none opacity-60"
         )}>
         <section aria-labelledby="inclusive-deaf-heading" className="px-6 py-6">
           <h2 id="inclusive-deaf-heading" className={classNames(sectionTitleClass, "mb-4")}>
@@ -347,7 +400,7 @@ const AccessibilityView = (): ReactElement => {
             fields={DEAF_FIELDS}
             form={form}
             onCheckedChange={onInclusiveCheckedChange}
-            isDisabled={disabled}
+            isDisabled={checkboxesDisabled}
             t={t}
           />
         </section>
@@ -362,7 +415,7 @@ const AccessibilityView = (): ReactElement => {
             fields={BLIND_FIELDS}
             form={form}
             onCheckedChange={onInclusiveCheckedChange}
-            isDisabled={disabled}
+            isDisabled={checkboxesDisabled}
             t={t}
           />
         </section>
@@ -377,7 +430,7 @@ const AccessibilityView = (): ReactElement => {
             fields={ADHD_FIELDS}
             form={form}
             onCheckedChange={onInclusiveCheckedChange}
-            isDisabled={disabled}
+            isDisabled={checkboxesDisabled}
             t={t}
           />
         </section>
@@ -392,21 +445,29 @@ const AccessibilityView = (): ReactElement => {
             fields={DYSLEXIA_FIELDS}
             form={form}
             onCheckedChange={onInclusiveCheckedChange}
-            isDisabled={disabled}
+            isDisabled={checkboxesDisabled}
             t={t}
           />
         </section>
 
         <SectionBottomActions align="start" className="gap-2 rounded-b-xl">
-          <Button color="minimal" type="button" disabled={!isDirty || disabled} onClick={handleCancel}>
+          <Button
+            color="minimal"
+            type="button"
+            disabled={!isDirty || checkboxesDisabled}
+            onClick={handleCancel}>
             {t("cancel")}
           </Button>
           <Button
             color="primary"
             type="button"
             loading={updateProfile.isPending}
-            disabled={!isDirty || isUserLoading}
-            onClick={handleSave}>
+            disabled={isSaveDisabled}
+            onClick={handleSave}
+            className={classNames(
+              "border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emphasis focus-visible:ring-offset-2",
+              saveButtonStateClass
+            )}>
             {t("save")}
           </Button>
         </SectionBottomActions>

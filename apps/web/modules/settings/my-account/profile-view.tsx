@@ -512,6 +512,7 @@ const ProfileForm = ({
   isCALIdentityProvider: boolean;
 }) => {
   const { t } = useLocale();
+  const session = useSession();
   const [firstRender, setFirstRender] = useState(true);
 
   const profileFormSchema = z.object({

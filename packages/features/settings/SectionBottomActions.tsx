@@ -13,7 +13,7 @@ const SectionBottomActions = ({
   return (
     <div
       className={classNames(
-        "flex rounded-b-lg border border-subtle bg-default px-6 py-4",
+        "flex rounded-b-lg border border-subtle bg-muted px-6 py-4",
         align === "end" && "justify-end",
         className
       )}>
