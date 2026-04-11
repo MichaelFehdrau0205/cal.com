@@ -600,10 +600,16 @@ const ProfileForm = ({
     handleAccountDisconnect(getUpdatedFormValues(formMethods.getValues()));
   };
 
+  const canFetchOrganizationAttributes =
+    session.status === "authenticated" &&
+    typeof user.organizationId === "number" &&
+    user.organizationId > 0;
+
   const { data: usersAttributes, isPending: usersAttributesPending } =
-    trpc.viewer.attributes.getByUserId.useQuery({
-      userId: user.id,
-    });
+    trpc.viewer.attributes.getByUserId.useQuery(
+      { userId: user.id },
+      { enabled: canFetchOrganizationAttributes }
+    );
 
   const {
     formState: { isSubmitting, isDirty },
