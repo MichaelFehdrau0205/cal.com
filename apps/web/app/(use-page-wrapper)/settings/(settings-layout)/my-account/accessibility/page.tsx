@@ -9,8 +9,8 @@ import AccessibilityView from "~/settings/my-account/accessibility-view";
 
 const generateMetadata = async (): Promise<Metadata> =>
   await _generateMetadata(
-    (t) => t("accessibility"),
-    (t) => t("accessibility_description"),
+    (t) => t("inclusive"),
+    (t) => t("inclusive_description"),
     undefined,
     undefined,
     "/settings/my-account/accessibility"

@@ -54,7 +54,7 @@ const getTabs = (orgBranding: OrganizationBranding | null) => {
           trackingMetadata: { section: "my_account", page: "general" },
         },
         {
-          name: "accessibility",
+          name: "inclusive",
           href: "/settings/my-account/accessibility",
           trackingMetadata: { section: "my_account", page: "accessibility" },
         },

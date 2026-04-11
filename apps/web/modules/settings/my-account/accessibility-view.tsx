@@ -6,47 +6,286 @@ import { useLocale } from "@calcom/lib/hooks/useLocale";
 import { userMetadata } from "@calcom/prisma/zod-utils";
 import type { RouterOutputs } from "@calcom/trpc/react";
 import { trpc } from "@calcom/trpc/react";
+import type { TUpdateUserMetadataAllowedKeys } from "@calcom/trpc/server/routers/viewer/me/updateProfile.schema";
 import classNames from "@calcom/ui/classNames";
 import { Button } from "@calcom/ui/components/button";
-import { Radio, RadioGroup, RadioIndicator, RadioLabel } from "@calcom/ui/components/radio";
+import { Checkbox } from "@calcom/ui/components/form/checkbox";
+import { Label } from "@calcom/ui/components/form/inputs/Label";
 import { showToast } from "@calcom/ui/components/toast";
+import type { CheckedState } from "@radix-ui/react-checkbox";
 import type { ReactElement } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 
-type DeafHearingValue = "deaf" | "hard_of_hearing" | "late_deaf";
+type MeUser = RouterOutputs["viewer"]["me"]["get"];
 
-const deafHearingOptions: { value: DeafHearingValue; labelKey: string; id: string }[] = [
-  { value: "deaf", labelKey: "accessibility_deaf_option_deaf", id: "accessibility-deaf-deaf" },
-  {
-    value: "hard_of_hearing",
-    labelKey: "accessibility_deaf_option_hard_of_hearing",
-    id: "accessibility-deaf-hard-of-hearing",
-  },
-  { value: "late_deaf", labelKey: "accessibility_deaf_option_late_deaf", id: "accessibility-deaf-late-deaf" },
-];
+const sectionTitleClass = "font-bold text-base text-emphasis leading-6";
+/** One horizontal strip: each pair is [checkbox][label]; pairs sit in one flex row (wraps when needed). */
+const inclusiveFieldStripClass = "flex flex-row flex-wrap items-center gap-x-6 gap-y-2";
 
-const sectionHashLinks: {
-  hash: string;
-  labelKey:
-    | "accessibility_section_deaf"
-    | "accessibility_section_blind"
-    | "accessibility_section_adhd"
-    | "accessibility_section_dyslexia";
-}[] = [
-  { hash: "#accessibility-deaf-heading", labelKey: "accessibility_section_deaf" },
-  { hash: "#accessibility-blind-heading", labelKey: "accessibility_section_blind" },
-  { hash: "#accessibility-adhd-heading", labelKey: "accessibility_section_adhd" },
-  { hash: "#accessibility-dyslexia-heading", labelKey: "accessibility_section_dyslexia" },
-];
+const CHECKBOX_TRUE = "true";
 
-const getDeafHearingFromUser = (
-  user: RouterOutputs["viewer"]["me"]["get"] | undefined
-): DeafHearingValue | undefined => {
-  if (!user?.metadata) return undefined;
-  const parsed = userMetadata.safeParse(user.metadata);
-  if (!parsed.success) return undefined;
-  return parsed.data?.deafHearingIdentity;
+type AccessibilityFormState = {
+  deafClosedCaptions: boolean;
+  deafNoteTaking: boolean;
+  blind1: boolean;
+  blind2: boolean;
+  blind3: boolean;
+  adhdWebsiteBlocker: boolean;
+  adhdTtsReader: boolean;
+  adhdFocusPlanner: boolean;
+  adhdVisualNotes: boolean;
+  dyslexiaTtsTools: boolean;
+  dyslexiaFontTools: boolean;
+  dyslexiaReadingDictation: boolean;
+  dyslexiaBrowserExtension: boolean;
 };
+
+const emptyForm: AccessibilityFormState = {
+  deafClosedCaptions: false,
+  deafNoteTaking: false,
+  blind1: false,
+  blind2: false,
+  blind3: false,
+  adhdWebsiteBlocker: false,
+  adhdTtsReader: false,
+  adhdFocusPlanner: false,
+  adhdVisualNotes: false,
+  dyslexiaTtsTools: false,
+  dyslexiaFontTools: false,
+  dyslexiaReadingDictation: false,
+  dyslexiaBrowserExtension: false,
+};
+
+type FieldRowSpec = {
+  formKey: keyof AccessibilityFormState;
+  labelKey: string;
+  name: string;
+};
+
+const DEAF_FIELDS: FieldRowSpec[] = [
+  {
+    formKey: "deafClosedCaptions",
+    labelKey: "inclusive_closed_captions",
+    name: "inclusiveDeafClosedCaptionsInput",
+  },
+  {
+    formKey: "deafNoteTaking",
+    labelKey: "inclusive_note_taking",
+    name: "inclusiveDeafNoteTakingInput",
+  },
+];
+
+const BLIND_FIELDS: FieldRowSpec[] = [
+  { formKey: "blind1", labelKey: "inclusive_blind_input_1", name: "inclusiveBlindInput1" },
+  { formKey: "blind2", labelKey: "inclusive_blind_input_2", name: "inclusiveBlindInput2" },
+  { formKey: "blind3", labelKey: "inclusive_blind_input_3", name: "inclusiveBlindInput3" },
+];
+
+const ADHD_FIELDS: FieldRowSpec[] = [
+  {
+    formKey: "adhdWebsiteBlocker",
+    labelKey: "inclusive_adhd_website_blocker",
+    name: "inclusiveAdhdWebsiteBlocker",
+  },
+  { formKey: "adhdTtsReader", labelKey: "inclusive_adhd_tts_reader", name: "inclusiveAdhdTtsReader" },
+  {
+    formKey: "adhdFocusPlanner",
+    labelKey: "inclusive_adhd_focus_planner",
+    name: "inclusiveAdhdFocusPlanner",
+  },
+  {
+    formKey: "adhdVisualNotes",
+    labelKey: "inclusive_adhd_visual_notes",
+    name: "inclusiveAdhdVisualNotes",
+  },
+];
+
+const DYSLEXIA_FIELDS: FieldRowSpec[] = [
+  {
+    formKey: "dyslexiaTtsTools",
+    labelKey: "inclusive_dyslexia_tts",
+    name: "inclusiveDyslexiaTtsTools",
+  },
+  {
+    formKey: "dyslexiaFontTools",
+    labelKey: "inclusive_dyslexia_font",
+    name: "inclusiveDyslexiaFontTools",
+  },
+  {
+    formKey: "dyslexiaReadingDictation",
+    labelKey: "inclusive_dyslexia_reading",
+    name: "inclusiveDyslexiaReadingDictation",
+  },
+  {
+    formKey: "dyslexiaBrowserExtension",
+    labelKey: "inclusive_dyslexia_browser_extension",
+    name: "inclusiveDyslexiaBrowserExtension",
+  },
+];
+
+function legacyStoredValueToChecked(value: unknown): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return false;
+  }
+  const v = value.trim().toLowerCase();
+  if (v === "" || v === "false" || v === "0") {
+    return false;
+  }
+  return true;
+}
+
+const pickInclusiveMetadataChecked = (
+  merged: Record<string, unknown>,
+  inclusiveKey: string,
+  legacyAccessibilityKey: string
+): boolean => {
+  const next = merged[inclusiveKey];
+  if (next !== undefined && next !== null) {
+    return legacyStoredValueToChecked(next);
+  }
+  const legacy = merged[legacyAccessibilityKey];
+  return legacyStoredValueToChecked(legacy);
+};
+
+const getFormFromUser = (user: MeUser | undefined): AccessibilityFormState => {
+  if (!user?.metadata) {
+    return { ...emptyForm };
+  }
+  let raw: Record<string, unknown> = {};
+  if (typeof user.metadata === "object" && user.metadata !== null && !Array.isArray(user.metadata)) {
+    raw = user.metadata as Record<string, unknown>;
+  }
+  const parsed = userMetadata.safeParse(user.metadata);
+  let m: Record<string, unknown> = {};
+  if (parsed.success && parsed.data) {
+    m = parsed.data as Record<string, unknown>;
+  }
+  const merged: Record<string, unknown> = { ...raw, ...m };
+
+  return {
+    deafClosedCaptions: pickInclusiveMetadataChecked(
+      merged,
+      "inclusiveDeafClosedCaptionsInput",
+      "accessibilityDeafClosedCaptionsInput"
+    ),
+    deafNoteTaking: pickInclusiveMetadataChecked(
+      merged,
+      "inclusiveDeafNoteTakingInput",
+      "accessibilityDeafNoteTakingInput"
+    ),
+    blind1: pickInclusiveMetadataChecked(merged, "inclusiveBlindInput1", "accessibilityBlindInput1"),
+    blind2: pickInclusiveMetadataChecked(merged, "inclusiveBlindInput2", "accessibilityBlindInput2"),
+    blind3: pickInclusiveMetadataChecked(merged, "inclusiveBlindInput3", "accessibilityBlindInput3"),
+    adhdWebsiteBlocker: pickInclusiveMetadataChecked(
+      merged,
+      "inclusiveAdhdWebsiteBlocker",
+      "accessibilityAdhdWebsiteBlocker"
+    ),
+    adhdTtsReader: pickInclusiveMetadataChecked(
+      merged,
+      "inclusiveAdhdTtsReader",
+      "accessibilityAdhdTtsReader"
+    ),
+    adhdFocusPlanner: pickInclusiveMetadataChecked(
+      merged,
+      "inclusiveAdhdFocusPlanner",
+      "accessibilityAdhdFocusPlanner"
+    ),
+    adhdVisualNotes: pickInclusiveMetadataChecked(
+      merged,
+      "inclusiveAdhdVisualNotes",
+      "accessibilityAdhdVisualNotes"
+    ),
+    dyslexiaTtsTools: pickInclusiveMetadataChecked(
+      merged,
+      "inclusiveDyslexiaTtsTools",
+      "accessibilityDyslexiaTtsTools"
+    ),
+    dyslexiaFontTools: pickInclusiveMetadataChecked(
+      merged,
+      "inclusiveDyslexiaFontTools",
+      "accessibilityDyslexiaFontTools"
+    ),
+    dyslexiaReadingDictation: pickInclusiveMetadataChecked(
+      merged,
+      "inclusiveDyslexiaReadingDictation",
+      "accessibilityDyslexiaReadingDictation"
+    ),
+    dyslexiaBrowserExtension: pickInclusiveMetadataChecked(
+      merged,
+      "inclusiveDyslexiaBrowserExtension",
+      "accessibilityDyslexiaBrowserExtension"
+    ),
+  };
+};
+
+function checkedToMetadataString(checked: boolean): string {
+  if (checked) {
+    return CHECKBOX_TRUE;
+  }
+  return "";
+}
+
+function buildMetadataFromForm(form: AccessibilityFormState): TUpdateUserMetadataAllowedKeys {
+  return {
+    inclusiveDeafClosedCaptionsInput: checkedToMetadataString(form.deafClosedCaptions),
+    inclusiveDeafNoteTakingInput: checkedToMetadataString(form.deafNoteTaking),
+    inclusiveBlindInput1: checkedToMetadataString(form.blind1),
+    inclusiveBlindInput2: checkedToMetadataString(form.blind2),
+    inclusiveBlindInput3: checkedToMetadataString(form.blind3),
+    inclusiveAdhdWebsiteBlocker: checkedToMetadataString(form.adhdWebsiteBlocker),
+    inclusiveAdhdTtsReader: checkedToMetadataString(form.adhdTtsReader),
+    inclusiveAdhdFocusPlanner: checkedToMetadataString(form.adhdFocusPlanner),
+    inclusiveAdhdVisualNotes: checkedToMetadataString(form.adhdVisualNotes),
+    inclusiveDyslexiaTtsTools: checkedToMetadataString(form.dyslexiaTtsTools),
+    inclusiveDyslexiaFontTools: checkedToMetadataString(form.dyslexiaFontTools),
+    inclusiveDyslexiaReadingDictation: checkedToMetadataString(form.dyslexiaReadingDictation),
+    inclusiveDyslexiaBrowserExtension: checkedToMetadataString(form.dyslexiaBrowserExtension),
+  };
+}
+
+type CheckboxRowProps = {
+  fields: FieldRowSpec[];
+  form: AccessibilityFormState;
+  onCheckedChange: (key: keyof AccessibilityFormState, checked: boolean) => void;
+  isDisabled: boolean;
+  t: (key: string) => string;
+};
+
+function InclusiveCheckboxRow({
+  fields,
+  form,
+  onCheckedChange,
+  isDisabled,
+  t,
+}: CheckboxRowProps): ReactElement {
+  const baseId = useId();
+  return (
+    <div className={inclusiveFieldStripClass}>
+      {fields.map((f) => {
+        const id = `${baseId}-${f.name}`;
+        return (
+          <div key={f.name} className="flex min-w-0 flex-row items-center gap-2">
+            <Checkbox
+              id={id}
+              checked={form[f.formKey]}
+              onCheckedChange={(state: CheckedState) => onCheckedChange(f.formKey, state === true)}
+              disabled={isDisabled}
+            />
+            <Label
+              htmlFor={id}
+              className="mb-0 shrink-0 cursor-pointer whitespace-nowrap font-medium text-emphasis text-sm leading-none">
+              {t(f.labelKey)}
+            </Label>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 const AccessibilityView = (): ReactElement => {
   const { t } = useLocale();
@@ -54,13 +293,13 @@ const AccessibilityView = (): ReactElement => {
 
   const { data: user, isPending: isUserLoading } = trpc.viewer.me.get.useQuery();
 
-  const savedIdentity = useMemo(() => getDeafHearingFromUser(user), [user]);
+  const saved = useMemo(() => getFormFromUser(user), [user]);
 
-  const [deafHearingIdentity, setDeafHearingIdentity] = useState<DeafHearingValue | undefined>(undefined);
+  const [form, setForm] = useState<AccessibilityFormState>(emptyForm);
 
   useEffect(() => {
-    setDeafHearingIdentity(savedIdentity);
-  }, [savedIdentity]);
+    setForm(saved);
+  }, [saved]);
 
   const updateProfile = trpc.viewer.me.updateProfile.useMutation({
     onSuccess: async () => {
@@ -72,130 +311,101 @@ const AccessibilityView = (): ReactElement => {
     },
   });
 
-  const isDirty = deafHearingIdentity !== savedIdentity;
-
-  const handleDeafHearingChange = (value: string): void => {
-    setDeafHearingIdentity(value as DeafHearingValue);
-  };
+  const isDirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(saved), [form, saved]);
 
   const handleCancel = (): void => {
-    setDeafHearingIdentity(savedIdentity);
+    setForm(saved);
   };
 
   const handleSave = (): void => {
-    if (!isDirty || deafHearingIdentity === undefined) return;
-    updateProfile.mutate({
-      metadata: {
-        deafHearingIdentity: deafHearingIdentity,
-      },
-    });
+    if (!isDirty) return;
+    updateProfile.mutate({ metadata: buildMetadataFromForm(form) });
   };
+
+  const onInclusiveCheckedChange = useCallback((key: keyof AccessibilityFormState, checked: boolean) => {
+    setForm((prev) => ({ ...prev, [key]: checked }));
+  }, []);
+
+  const disabled = isUserLoading || updateProfile.isPending;
 
   return (
     <SettingsHeader
-      title={t("accessibility")}
-      description={t("accessibility_description")}
-      borderInShellHeader={true}>
+      title={t("inclusive")}
+      description={t("inclusive_description")}
+      borderInShellHeader={true}
+      headerClassName="bg-subtle">
       <div
         className={classNames(
           "rounded-b-xl border-subtle border-x border-b",
           isUserLoading && "pointer-events-none opacity-60"
         )}>
-        <nav
-          aria-label={t("accessibility_on_this_page")}
-          className="flex flex-wrap items-center gap-x-3 gap-y-2 border-subtle border-b px-6 py-3 text-sm">
-          {sectionHashLinks.map((item, index) => (
-            <span key={item.hash} className="flex items-center gap-x-3">
-              {index > 0 && (
-                <span aria-hidden className="text-subtle">
-                  ·
-                </span>
-              )}
-              <a
-                href={item.hash}
-                className="text-default underline-offset-2 hover:text-emphasis hover:underline">
-                {t(item.labelKey)}
-              </a>
-            </span>
-          ))}
-        </nav>
-
-        {/* Deaf */}
-        <section aria-labelledby="accessibility-deaf-heading" className="px-6 py-6">
-          <h2
-            id="accessibility-deaf-heading"
-            className="mb-4 font-semibold text-base text-emphasis leading-6">
-            {t("accessibility_section_deaf")}
+        <section aria-labelledby="inclusive-deaf-heading" className="px-6 py-6">
+          <h2 id="inclusive-deaf-heading" className={classNames(sectionTitleClass, "mb-4")}>
+            {t("inclusive_deaf")}
           </h2>
-          <RadioGroup
-            className="flex flex-row flex-nowrap items-center gap-x-8 overflow-x-auto pb-1"
-            value={deafHearingIdentity}
-            onValueChange={handleDeafHearingChange}
-            disabled={isUserLoading || updateProfile.isPending}>
-            {deafHearingOptions.map((opt) => (
-              <div key={opt.value} className="flex shrink-0 items-center gap-3">
-                <Radio value={opt.value} id={opt.id}>
-                  <RadioIndicator disabled={isUserLoading || updateProfile.isPending} />
-                </Radio>
-                <RadioLabel
-                  htmlFor={opt.id}
-                  className="ms-0 w-auto cursor-pointer font-normal text-emphasis text-sm leading-5">
-                  {t(opt.labelKey)}
-                </RadioLabel>
-              </div>
-            ))}
-          </RadioGroup>
+          <InclusiveCheckboxRow
+            fields={DEAF_FIELDS}
+            form={form}
+            onCheckedChange={onInclusiveCheckedChange}
+            isDisabled={disabled}
+            t={t}
+          />
         </section>
 
         <div className="border-subtle border-t" role="presentation" />
 
-        {/* Blind */}
-        <section aria-labelledby="accessibility-blind-heading" className="px-6 py-6">
-          <h2
-            id="accessibility-blind-heading"
-            className="mb-2 font-semibold text-base text-emphasis leading-6">
-            {t("accessibility_section_blind")}
+        <section aria-labelledby="inclusive-blind-heading" className="px-6 py-6">
+          <h2 id="inclusive-blind-heading" className={classNames(sectionTitleClass, "mb-4")}>
+            {t("inclusive_blind")}
           </h2>
-          <p className="text-sm text-subtle leading-normal">{t("accessibility_under_construction")}</p>
+          <InclusiveCheckboxRow
+            fields={BLIND_FIELDS}
+            form={form}
+            onCheckedChange={onInclusiveCheckedChange}
+            isDisabled={disabled}
+            t={t}
+          />
         </section>
 
         <div className="border-subtle border-t" role="presentation" />
 
-        {/* ADHD */}
-        <section aria-labelledby="accessibility-adhd-heading" className="px-6 py-6">
-          <h2
-            id="accessibility-adhd-heading"
-            className="mb-2 font-semibold text-base text-emphasis leading-6">
-            {t("accessibility_section_adhd")}
+        <section aria-labelledby="inclusive-adhd-heading" className="px-6 py-6">
+          <h2 id="inclusive-adhd-heading" className={classNames(sectionTitleClass, "mb-4")}>
+            {t("inclusive_adhd")}
           </h2>
-          <p className="text-sm text-subtle leading-normal">{t("accessibility_under_construction")}</p>
+          <InclusiveCheckboxRow
+            fields={ADHD_FIELDS}
+            form={form}
+            onCheckedChange={onInclusiveCheckedChange}
+            isDisabled={disabled}
+            t={t}
+          />
         </section>
 
         <div className="border-subtle border-t" role="presentation" />
 
-        {/* Dyslexia */}
-        <section aria-labelledby="accessibility-dyslexia-heading" className="px-6 py-6">
-          <h2
-            id="accessibility-dyslexia-heading"
-            className="mb-2 font-semibold text-base text-emphasis leading-6">
-            {t("accessibility_section_dyslexia")}
+        <section aria-labelledby="inclusive-dyslexia-heading" className="px-6 py-6">
+          <h2 id="inclusive-dyslexia-heading" className={classNames(sectionTitleClass, "mb-4")}>
+            {t("inclusive_dyslexia")}
           </h2>
-          <p className="text-sm text-subtle leading-normal">{t("accessibility_under_construction")}</p>
+          <InclusiveCheckboxRow
+            fields={DYSLEXIA_FIELDS}
+            form={form}
+            onCheckedChange={onInclusiveCheckedChange}
+            isDisabled={disabled}
+            t={t}
+          />
         </section>
 
         <SectionBottomActions align="start" className="gap-2 rounded-b-xl">
-          <Button
-            color="minimal"
-            type="button"
-            disabled={!isDirty || isUserLoading || updateProfile.isPending}
-            onClick={handleCancel}>
+          <Button color="minimal" type="button" disabled={!isDirty || disabled} onClick={handleCancel}>
             {t("cancel")}
           </Button>
           <Button
             color="primary"
             type="button"
             loading={updateProfile.isPending}
-            disabled={!isDirty || deafHearingIdentity === undefined || isUserLoading}
+            disabled={!isDirty || isUserLoading}
             onClick={handleSave}>
             {t("save")}
           </Button>

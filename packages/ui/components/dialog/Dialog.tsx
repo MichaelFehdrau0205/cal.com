@@ -1,13 +1,11 @@
 "use client";
 
+import { useLocale } from "@calcom/lib/hooks/useLocale";
+import classNames from "@calcom/ui/classNames";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { cva, type VariantProps } from "class-variance-authority";
 import type { ForwardRefExoticComponent, ReactNode } from "react";
 import React from "react";
-
-import { useLocale } from "@calcom/lib/hooks/useLocale";
-import classNames from "@calcom/ui/classNames";
-
 import type { ButtonProps } from "../button";
 import { Button } from "../button";
 import type { IconName } from "../icon";
@@ -67,6 +65,9 @@ export const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps
     },
     forwardedRef
   ) => {
+    const { t } = useLocale();
+    const accessibleTitleFallback = t("dialog_accessible_title_fallback");
+
     return (
       <DialogPrimitive.Portal>
         {forceOverlayWhenNoModal ? (
@@ -91,6 +92,9 @@ export const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps
           ref={forwardedRef}>
           {type === "creation" && (
             <div>
+              {!title ? (
+                <DialogPrimitive.Title className="sr-only">{accessibleTitleFallback}</DialogPrimitive.Title>
+              ) : null}
               <DialogHeader title={title} subtitle={props.description} />
               <div data-testid="dialog-creation" className="flex flex-col">
                 {children}
@@ -105,12 +109,22 @@ export const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps
                 </div>
               )}
               <div className="ml-4 grow">
+                {!title ? (
+                  <DialogPrimitive.Title className="sr-only">{accessibleTitleFallback}</DialogPrimitive.Title>
+                ) : null}
                 <DialogHeader title={title} subtitle={props.description} />
                 <div data-testid="dialog-confirmation">{children}</div>
               </div>
             </div>
           )}
-          {!type && children}
+          {!type && (
+            <>
+              <DialogPrimitive.Title className="sr-only">
+                {typeof title === "string" && title.trim() ? title : accessibleTitleFallback}
+              </DialogPrimitive.Title>
+              {children}
+            </>
+          )}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     );
@@ -118,7 +132,7 @@ export const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps
 );
 
 type DialogHeaderProps = {
-  title: React.ReactNode;
+  title?: React.ReactNode;
   subtitle?: React.ReactNode;
 } & React.HTMLAttributes<HTMLDivElement>;
 
@@ -127,17 +141,17 @@ export function DialogHeader(props: DialogHeaderProps) {
 
   return (
     <div className="mb-4">
-      <h2
+      <DialogPrimitive.Title
         data-testid="dialog-title"
         className="text-semibold text-emphasis font-cal mb-1 text-xl"
         id="modal-title">
         {props.title}
-      </h2>
-      {props.subtitle && (
-        <p className="text-subtle text-sm" data-testid="dialog-subtitle">
+      </DialogPrimitive.Title>
+      {props.subtitle ? (
+        <DialogPrimitive.Description className="text-subtle text-sm" data-testid="dialog-subtitle">
           {props.subtitle}
-        </p>
-      )}
+        </DialogPrimitive.Description>
+      ) : null}
     </div>
   );
 }

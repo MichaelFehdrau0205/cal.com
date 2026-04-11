@@ -2,6 +2,7 @@ import { PermissionCheckService } from "@calcom/features/pbac/services/permissio
 import { ProfileRepository } from "@calcom/features/profile/repositories/ProfileRepository";
 import { UserRepository } from "@calcom/features/users/repositories/UserRepository";
 import { getUserAvatarUrl } from "@calcom/lib/getAvatarUrl";
+import { omitUserAccessibilitySecretsFromMetadata } from "@calcom/lib/userAccessibilityMetadataSecrets";
 import prisma from "@calcom/prisma";
 import { IdentityProvider, MembershipRole } from "@calcom/prisma/enums";
 import { userMetadata } from "@calcom/prisma/zod-utils";
@@ -130,7 +131,14 @@ export const getHandler = async ({ ctx, input }: MeOptions) => {
     theme: user.theme,
     appTheme: user.appTheme,
     hideBranding: user.hideBranding,
-    metadata: user.metadata,
+    metadata: (() => {
+      if (!user.metadata || typeof user.metadata !== "object" || Array.isArray(user.metadata)) {
+        return user.metadata;
+      }
+      return omitUserAccessibilitySecretsFromMetadata({
+        ...(user.metadata as Record<string, unknown>),
+      });
+    })(),
     defaultBookerLayouts: user.defaultBookerLayouts,
     allowDynamicBooking: user.allowDynamicBooking,
     allowSEOIndexing: user.allowSEOIndexing,

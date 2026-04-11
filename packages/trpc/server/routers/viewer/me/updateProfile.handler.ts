@@ -1,6 +1,3 @@
-import { keyBy } from "lodash";
-import type { GetServerSidePropsContext, NextApiResponse } from "next";
-
 import { getPremiumMonthlyPlanPriceId } from "@calcom/app-store/stripepayment/lib/utils";
 import { getBillingProviderService } from "@calcom/ee/billing/di/containers/Billing";
 import { sendChangeOfEmailVerification } from "@calcom/features/auth/lib/verifyEmail";
@@ -8,23 +5,24 @@ import { updateNewTeamMemberEventTypes } from "@calcom/features/ee/teams/lib/que
 import { FeaturesRepository } from "@calcom/features/flags/features.repository";
 import { checkUsername } from "@calcom/features/profile/lib/checkUsername";
 import { ScheduleRepository } from "@calcom/features/schedules/repositories/ScheduleRepository";
+import { getTranslation } from "@calcom/i18n/server";
 import hasKeyInMetadata from "@calcom/lib/hasKeyInMetadata";
 import { HttpError } from "@calcom/lib/http-error";
 import logger from "@calcom/lib/logger";
 import { uploadAvatar } from "@calcom/lib/server/avatar";
-import { getTranslation } from "@calcom/i18n/server";
 import { resizeBase64Image } from "@calcom/lib/server/resizeBase64Image";
 import slugify from "@calcom/lib/slugify";
+import { mergeUserAccessibilitySecretMetadata } from "@calcom/lib/userAccessibilityMetadataSecrets";
 import { validateBookerLayouts } from "@calcom/lib/validateBookerLayouts";
 import { prisma } from "@calcom/prisma";
 import { Prisma } from "@calcom/prisma/client";
-import type { JsonValue } from "@calcom/types/Json";
-import { userMetadata as userMetadataSchema } from "@calcom/prisma/zod-utils";
+import { userMetadata as userMetadataSchema, type userMetadataType } from "@calcom/prisma/zod-utils";
 import type { TrpcSessionUser } from "@calcom/trpc/server/types";
-
+import type { JsonValue } from "@calcom/types/Json";
 import { TRPCError } from "@trpc/server";
-
-import { updateUserMetadataAllowedKeys, type TUpdateProfileInputSchema } from "./updateProfile.schema";
+import { keyBy } from "lodash";
+import type { GetServerSidePropsContext, NextApiResponse } from "next";
+import { type TUpdateProfileInputSchema, updateUserMetadataAllowedKeys } from "./updateProfile.schema";
 
 const log = logger.getSubLogger({ prefix: ["updateProfile"] });
 type UpdateProfileOptions = {
@@ -50,7 +48,7 @@ export const updateProfileHandler = async ({ ctx, input }: UpdateProfileOptions)
 
   const data: Prisma.UserUpdateInput = {
     ...rest,
-    metadata: userMetadata,
+    metadata: userMetadata as Prisma.InputJsonValue,
     secondaryEmails: undefined,
   };
 
@@ -409,10 +407,25 @@ const cleanMetadataAllowedUpdateKeys = (metadata: TUpdateProfileInputSchema["met
   return cleanedMetadata.data;
 };
 
-const handleUserMetadata = ({ ctx, input }: UpdateProfileOptions) => {
+const ACCESSIBILITY_NULLABLE_ENUM_KEYS = [
+  "inclusiveBlindScreenReader",
+  "inclusiveBlindMagnification",
+] as const;
+
+const handleUserMetadata = ({ ctx, input }: UpdateProfileOptions): NonNullable<userMetadataType> => {
   const { user } = ctx;
   const cleanMetadata = cleanMetadataAllowedUpdateKeys(input.metadata);
   const userMetadata = userMetadataSchema.parse(user.metadata);
-  // Required so we don't override and delete saved values
-  return { ...userMetadata, ...cleanMetadata };
+  const merged = { ...(userMetadata ?? {}), ...cleanMetadata } as Record<string, unknown>;
+  mergeUserAccessibilitySecretMetadata(merged, cleanMetadata as Record<string, unknown>);
+  for (const key of ACCESSIBILITY_NULLABLE_ENUM_KEYS) {
+    if (merged[key] === null) {
+      delete merged[key];
+    }
+  }
+  const parsed = userMetadataSchema.parse(merged);
+  if (parsed === null) {
+    return {} as NonNullable<userMetadataType>;
+  }
+  return parsed as NonNullable<userMetadataType>;
 };

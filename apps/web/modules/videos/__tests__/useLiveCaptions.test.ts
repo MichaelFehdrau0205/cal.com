@@ -1,19 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
 import { useLiveCaptions } from "../useLiveCaptions";
-
-/**
- * Mock strategy:
- *
- * useDailyEvent registers handlers for Daily.co call lifecycle events.
- * We capture each handler as it is registered so we can manually fire
- * them in tests — simulating joined-meeting, left-meeting, and
- * transcription-error events without needing a real Daily.co call.
- *
- * trpc.viewer.me.get.useQuery is mocked to return a controlled
- * liveCaptionsEnabled boolean so we can test both enabled and disabled paths.
- */
 
 const mockStartTranscription = vi.fn();
 const mockStopTranscription = vi.fn();
@@ -23,51 +10,33 @@ const mockDaily = {
   stopTranscription: mockStopTranscription,
 };
 
-// Captures event handlers registered via useDailyEvent so tests can fire them
 const capturedHandlers: Record<string, (...args: unknown[]) => void> = {};
+
+let mockIsTranscribing = false;
 
 vi.mock("@daily-co/daily-react", () => ({
   useDaily: vi.fn(() => mockDaily),
   useDailyEvent: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
     capturedHandlers[event] = handler;
   }),
+  useTranscription: vi.fn(() => ({ isTranscribing: mockIsTranscribing })),
 }));
-
-vi.mock("@calcom/trpc/react", () => ({
-  trpc: {
-    viewer: {
-      me: {
-        get: {
-          useQuery: vi.fn(),
-        },
-      },
-    },
-  },
-}));
-
-// Helper to set the liveCaptionsEnabled return value before each test
-const { trpc } = await import("@calcom/trpc/react");
-const mockUseQuery = trpc.viewer.me.get.useQuery as ReturnType<typeof vi.fn>;
 
 describe("useLiveCaptions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Clear captured handlers between tests
+    mockIsTranscribing = false;
     for (const key of Object.keys(capturedHandlers)) {
       delete capturedHandlers[key];
     }
   });
 
   describe("joined-meeting event", () => {
-    it("starts transcription with correct params when liveCaptionsEnabled is true", () => {
-      mockUseQuery.mockReturnValue({ data: { liveCaptionsEnabled: true } });
-
-      renderHook(() => useLiveCaptions());
-
-      // Simulate the Daily.co joined-meeting event
+    it("starts transcription with correct params when captionsEnabled is true", () => {
+      renderHook(() => useLiveCaptions(true));
       capturedHandlers["joined-meeting"]?.();
 
-      expect(mockStartTranscription).toHaveBeenCalledTimes(1);
+      expect(mockStartTranscription).toHaveBeenCalled();
       expect(mockStartTranscription).toHaveBeenCalledWith({
         language: "en",
         model: "nova-2",
@@ -75,19 +44,9 @@ describe("useLiveCaptions", () => {
       });
     });
 
-    it("does NOT start transcription when liveCaptionsEnabled is false", () => {
-      mockUseQuery.mockReturnValue({ data: { liveCaptionsEnabled: false } });
-
-      renderHook(() => useLiveCaptions());
-      capturedHandlers["joined-meeting"]?.();
-
-      expect(mockStartTranscription).not.toHaveBeenCalled();
-    });
-
-    it("does NOT start transcription when liveCaptionsEnabled is undefined", () => {
-      mockUseQuery.mockReturnValue({ data: undefined });
-
-      renderHook(() => useLiveCaptions());
+    it("does NOT start transcription when captionsEnabled is false", () => {
+      renderHook(() => useLiveCaptions(false));
+      mockStartTranscription.mockClear();
       capturedHandlers["joined-meeting"]?.();
 
       expect(mockStartTranscription).not.toHaveBeenCalled();
@@ -95,19 +54,17 @@ describe("useLiveCaptions", () => {
   });
 
   describe("left-meeting event", () => {
-    it("stops transcription when liveCaptionsEnabled is true", () => {
-      mockUseQuery.mockReturnValue({ data: { liveCaptionsEnabled: true } });
-
-      renderHook(() => useLiveCaptions());
+    it("stops transcription when captionsEnabled is true", () => {
+      renderHook(() => useLiveCaptions(true));
+      mockStopTranscription.mockClear();
       capturedHandlers["left-meeting"]?.();
 
       expect(mockStopTranscription).toHaveBeenCalledTimes(1);
     });
 
-    it("does NOT stop transcription when liveCaptionsEnabled is false", () => {
-      mockUseQuery.mockReturnValue({ data: { liveCaptionsEnabled: false } });
-
-      renderHook(() => useLiveCaptions());
+    it("does NOT stop transcription when captionsEnabled is false", () => {
+      renderHook(() => useLiveCaptions(false));
+      mockStopTranscription.mockClear();
       capturedHandlers["left-meeting"]?.();
 
       expect(mockStopTranscription).not.toHaveBeenCalled();
@@ -116,20 +73,17 @@ describe("useLiveCaptions", () => {
 
   describe("transcription-error event", () => {
     it("handles error without throwing and does not crash the call", () => {
-      mockUseQuery.mockReturnValue({ data: { liveCaptionsEnabled: true } });
+      renderHook(() => useLiveCaptions(true));
 
-      renderHook(() => useLiveCaptions());
-
-      // Must not throw — captions are non-critical and should never crash the call
       expect(() => {
         capturedHandlers["transcription-error"]?.({ errorMsg: "test error" });
       }).not.toThrow();
     });
 
-    it("does not call startTranscription or stopTranscription on error", () => {
-      mockUseQuery.mockReturnValue({ data: { liveCaptionsEnabled: true } });
-
-      renderHook(() => useLiveCaptions());
+    it("does not call startTranscription or stopTranscription from the error handler", () => {
+      renderHook(() => useLiveCaptions(true));
+      mockStartTranscription.mockClear();
+      mockStopTranscription.mockClear();
       capturedHandlers["transcription-error"]?.({ errorMsg: "test error" });
 
       expect(mockStartTranscription).not.toHaveBeenCalled();
@@ -141,25 +95,36 @@ describe("useLiveCaptions", () => {
     it("does not throw when daily is null on joined-meeting", async () => {
       const { useDaily } = await import("@daily-co/daily-react");
       (useDaily as ReturnType<typeof vi.fn>).mockReturnValue(null);
-      mockUseQuery.mockReturnValue({ data: { liveCaptionsEnabled: true } });
 
-      renderHook(() => useLiveCaptions());
+      renderHook(() => useLiveCaptions(true));
 
       expect(() => {
         capturedHandlers["joined-meeting"]?.();
       }).not.toThrow();
+      (useDaily as ReturnType<typeof vi.fn>).mockReturnValue(mockDaily);
     });
 
     it("does not throw when daily is null on left-meeting", async () => {
       const { useDaily } = await import("@daily-co/daily-react");
       (useDaily as ReturnType<typeof vi.fn>).mockReturnValue(null);
-      mockUseQuery.mockReturnValue({ data: { liveCaptionsEnabled: true } });
 
-      renderHook(() => useLiveCaptions());
+      renderHook(() => useLiveCaptions(true));
 
       expect(() => {
         capturedHandlers["left-meeting"]?.();
       }).not.toThrow();
+      (useDaily as ReturnType<typeof vi.fn>).mockReturnValue(mockDaily);
+    });
+  });
+
+  describe("when transcription is already active", () => {
+    it("does not call startTranscription from joined-meeting", () => {
+      mockIsTranscribing = true;
+      renderHook(() => useLiveCaptions(true));
+      mockStartTranscription.mockClear();
+      capturedHandlers["joined-meeting"]?.();
+
+      expect(mockStartTranscription).not.toHaveBeenCalled();
     });
   });
 });

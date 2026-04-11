@@ -1,40 +1,43 @@
-import { useDaily, useDailyEvent } from "@daily-co/daily-react";
-import { trpc } from "@calcom/trpc/react";
-import { useCallback } from "react";
+import { useDaily, useDailyEvent, useTranscription } from "@daily-co/daily-react";
+import { useCallback, useEffect } from "react";
 
 /**
- * Automatically starts and stops Daily.co transcription based on the user's
- * saved accessibility preference (liveCaptionsEnabled).
- *
- * Reads liveCaptionsEnabled from trpc.viewer.me.get — the field is added to
- * the User model and exposed through the me router by feat/live-captions-db-layer.
+ * Starts Daily.co transcription when `captionsEnabled` is true (on join and when toggled on
+ * mid-call) and stops it on leave when the user had captions on. Pair with
+ * `LiveCaptionOverlay` and the Cal Video CC toggle.
  */
-export function useLiveCaptions() {
+export function useLiveCaptions(captionsEnabled: boolean): void {
   const daily = useDaily();
+  const transcription = useTranscription();
 
-  const { data } = trpc.viewer.me.get.useQuery();
-  const liveCaptionsEnabled = data?.liveCaptionsEnabled ?? false;
+  const tryStartTranscription = useCallback(() => {
+    if (!captionsEnabled || !daily) return;
+    if (transcription?.isTranscribing) return;
+    daily.startTranscription({ language: "en", model: "nova-2", punctuate: true });
+  }, [captionsEnabled, daily, transcription?.isTranscribing]);
+
+  useEffect(() => {
+    tryStartTranscription();
+  }, [tryStartTranscription]);
 
   useDailyEvent(
     "joined-meeting",
     useCallback(() => {
-      if (!liveCaptionsEnabled) return;
-      daily?.startTranscription({ language: "en", model: "nova-2", punctuate: true });
-    }, [daily, liveCaptionsEnabled])
+      tryStartTranscription();
+    }, [tryStartTranscription])
   );
 
   useDailyEvent(
     "left-meeting",
     useCallback(() => {
-      if (!liveCaptionsEnabled) return;
-      daily?.stopTranscription();
-    }, [daily, liveCaptionsEnabled])
+      if (!captionsEnabled || !daily) return;
+      daily.stopTranscription();
+    }, [captionsEnabled, daily])
   );
 
   useDailyEvent(
     "transcription-error",
     useCallback((ev) => {
-      // Log the error but do not crash the call — captions are non-critical
       console.error("Live captions transcription error:", ev);
     }, [])
   );

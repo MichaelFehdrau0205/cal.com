@@ -1,19 +1,62 @@
-import { z } from "zod";
-
 import { FULL_NAME_LENGTH_MAX_LIMIT } from "@calcom/lib/constants";
 import { timeZoneSchema } from "@calcom/lib/dayjs/timeZone.schema";
-import { bookerLayouts, deafHearingIdentitySchema, userMetadata } from "@calcom/prisma/zod-utils";
+import {
+  accessibilityBlindMagnificationSchema,
+  accessibilityBlindScreenReaderSchema,
+  bookerLayouts,
+  deafHearingIdentitySchema,
+  userMetadata,
+} from "@calcom/prisma/zod-utils";
+import { z } from "zod";
+
+const accessibilityOptionalText = z.string().max(500).optional();
 
 export type TUpdateUserMetadataAllowedKeys = {
   sessionTimeout?: number;
   defaultBookerLayouts?: z.infer<typeof bookerLayouts>;
   deafHearingIdentity?: z.infer<typeof deafHearingIdentitySchema>;
+  inclusiveDeafClosedCaptionsInput?: string;
+  inclusiveDeafNoteTakingInput?: string;
+  inclusiveDeafCaptioningApiKey?: string;
+  inclusiveDeafNoteTakingApiKey?: string;
+  inclusiveBlindScreenReader?: z.infer<typeof accessibilityBlindScreenReaderSchema> | null;
+  inclusiveBlindBrailleDisplayApiKey?: string;
+  inclusiveBlindMagnification?: z.infer<typeof accessibilityBlindMagnificationSchema> | null;
+  inclusiveBlindInput1?: string;
+  inclusiveBlindInput2?: string;
+  inclusiveBlindInput3?: string;
+  inclusiveAdhdWebsiteBlocker?: string;
+  inclusiveAdhdTtsReader?: string;
+  inclusiveAdhdFocusPlanner?: string;
+  inclusiveAdhdVisualNotes?: string;
+  inclusiveDyslexiaTtsTools?: string;
+  inclusiveDyslexiaFontTools?: string;
+  inclusiveDyslexiaReadingDictation?: string;
+  inclusiveDyslexiaBrowserExtension?: string;
 };
 
 export const updateUserMetadataAllowedKeys: z.ZodType<TUpdateUserMetadataAllowedKeys> = z.object({
   sessionTimeout: z.number().optional(), // Minutes
   defaultBookerLayouts: bookerLayouts.optional(),
   deafHearingIdentity: deafHearingIdentitySchema.optional(),
+  inclusiveDeafClosedCaptionsInput: z.string().max(500).optional(),
+  inclusiveDeafNoteTakingInput: z.string().max(500).optional(),
+  inclusiveDeafCaptioningApiKey: z.string().max(500).optional(),
+  inclusiveDeafNoteTakingApiKey: z.string().max(500).optional(),
+  inclusiveBlindScreenReader: z.union([accessibilityBlindScreenReaderSchema, z.null()]).optional(),
+  inclusiveBlindBrailleDisplayApiKey: z.string().max(500).optional(),
+  inclusiveBlindMagnification: z.union([accessibilityBlindMagnificationSchema, z.null()]).optional(),
+  inclusiveBlindInput1: accessibilityOptionalText,
+  inclusiveBlindInput2: accessibilityOptionalText,
+  inclusiveBlindInput3: accessibilityOptionalText,
+  inclusiveAdhdWebsiteBlocker: accessibilityOptionalText,
+  inclusiveAdhdTtsReader: accessibilityOptionalText,
+  inclusiveAdhdFocusPlanner: accessibilityOptionalText,
+  inclusiveAdhdVisualNotes: accessibilityOptionalText,
+  inclusiveDyslexiaTtsTools: accessibilityOptionalText,
+  inclusiveDyslexiaFontTools: accessibilityOptionalText,
+  inclusiveDyslexiaReadingDictation: accessibilityOptionalText,
+  inclusiveDyslexiaBrowserExtension: accessibilityOptionalText,
 });
 
 export type TUpdateProfileInputSchemaInput = {

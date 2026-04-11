@@ -104,6 +104,7 @@ describe("getHandler - identity provider email lookup", () => {
     allowSEOIndexing: true,
     receiveMonthlyDigestEmail: true,
     requiresBookerEmailVerification: false,
+    liveCaptionsEnabled: false,
     role: "USER",
     organization: null,
     teams: [],
@@ -229,5 +230,26 @@ describe("getHandler - identity provider email lookup", () => {
     const result = await getHandler({ ctx, input: {} });
 
     expect(result.identityProviderEmail).toBe("");
+  });
+
+  it("strips accessibility API keys from metadata returned to the client", async () => {
+    const ctx = createCtx({
+      metadata: {
+        deafHearingIdentity: "deaf",
+        inclusiveDeafCaptioningApiKey: "caption-secret",
+        inclusiveAdhdWebsiteBlocker: "Freedom",
+      },
+    });
+    mockEnrichUserWithTheProfile.mockImplementation(({ user }) => ({
+      ...user,
+      profile: null,
+    }));
+
+    const result = await getHandler({ ctx, input: {} });
+
+    expect(result.metadata).toEqual({
+      deafHearingIdentity: "deaf",
+      inclusiveAdhdWebsiteBlocker: "Freedom",
+    });
   });
 });

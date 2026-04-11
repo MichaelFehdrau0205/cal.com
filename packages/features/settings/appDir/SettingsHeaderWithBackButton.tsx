@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-
 import SettingsHeader from "./SettingsHeader";
 
 type SettingsHeaderWithBackButtonProps = {
@@ -12,6 +11,7 @@ type SettingsHeaderWithBackButtonProps = {
   CTA?: ReactNode;
   ctaClassName?: string;
   borderInShellHeader?: boolean;
+  headerClassName?: string;
 };
 
 export default function SettingsHeaderWithBackButton(props: SettingsHeaderWithBackButtonProps) {

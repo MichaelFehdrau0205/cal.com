@@ -1,11 +1,11 @@
 "use client";
 
-import React, { Suspense } from "react";
-
+import { useLocale } from "@calcom/lib/hooks/useLocale";
 import classNames from "@calcom/ui/classNames";
 import { Button } from "@calcom/ui/components/button";
 import { LoaderIcon } from "@coss/ui/icons";
-import { useLocale } from "@calcom/lib/hooks/useLocale";
+import type React from "react";
+import { Suspense } from "react";
 
 type HeaderPropsBase = {
   children: React.ReactNode;
@@ -14,6 +14,8 @@ type HeaderPropsBase = {
   CTA?: React.ReactNode;
   ctaClassName?: string;
   borderInShellHeader?: boolean;
+  /** Extra classes on the `<header>` (e.g. background) without affecting children. */
+  headerClassName?: string;
 };
 
 type HeaderPropsWithBackButton = HeaderPropsBase & {
@@ -35,6 +37,7 @@ export default function Header({
   CTA,
   ctaClassName,
   borderInShellHeader,
+  headerClassName,
   backButton,
   onBackButtonClick,
 }: HeaderProps) {
@@ -46,7 +49,8 @@ export default function Header({
         className={classNames(
           "border-subtle mx-auto flex justify-between",
           borderInShellHeader && "rounded-t-lg border px-4 py-6 sm:px-6",
-          borderInShellHeader === undefined && "mb-8 border-b pb-8"
+          borderInShellHeader === undefined && "mb-8 border-b pb-8",
+          headerClassName
         )}>
         <div className="flex w-full items-center justify-between gap-2">
           <div className="flex items-center">

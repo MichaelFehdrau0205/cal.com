@@ -1,9 +1,11 @@
+import { useLocale } from "@calcom/lib/hooks/useLocale";
+import { trpc } from "@calcom/trpc/react";
+import classNames from "@calcom/ui/classNames";
 import type { DailyCall } from "@daily-co/daily-js";
-import { useTranscription, useRecording } from "@daily-co/daily-react";
-import { useDaily, useDailyEvent } from "@daily-co/daily-react";
-import React, { Fragment, useCallback, useRef, useState, useLayoutEffect, useEffect } from "react";
-
+import { useDaily, useDailyEvent, useRecording, useTranscription } from "@daily-co/daily-react";
+import React, { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { BUTTONS } from "./button-states";
+import { LiveCaptionOverlay } from "./live-caption-overlay";
 import { useLiveCaptions } from "./useLiveCaptions";
 
 export type DailyCustomTrayButtonVisualState = "default" | "sidebar-open" | "active";
@@ -172,7 +174,41 @@ export const CalVideoPremiumFeatures = ({
   enableAutomaticRecordingForOrganizer: boolean;
   showTranscriptionButton: boolean;
 }) => {
+  const { t } = useLocale();
   const daily = useDaily();
+  const utils = trpc.useUtils();
+  const { data: me, isSuccess: meQuerySuccess } = trpc.viewer.me.get.useQuery();
+  const updateProfile = trpc.viewer.me.updateProfile.useMutation({
+    onSuccess: async () => {
+      await utils.viewer.me.invalidate();
+    },
+  });
+
+  const [captionsEnabled, setCaptionsEnabled] = useState(false);
+  const appliedServerCaptionPref = useRef(false);
+
+  useEffect(() => {
+    if (!meQuerySuccess || !me || appliedServerCaptionPref.current) return;
+    appliedServerCaptionPref.current = true;
+    setCaptionsEnabled(me.liveCaptionsEnabled ?? false);
+  }, [me, meQuerySuccess]);
+
+  const canUseCaptionToggle = meQuerySuccess && !!me;
+
+  const toggleClosedCaptions = useCallback(() => {
+    if (!canUseCaptionToggle) return;
+    const next = !captionsEnabled;
+    setCaptionsEnabled(next);
+    updateProfile.mutate(
+      { liveCaptionsEnabled: next },
+      {
+        onError: () => {
+          setCaptionsEnabled(!next);
+        },
+      }
+    );
+  }, [canUseCaptionToggle, captionsEnabled, updateProfile]);
+
   const [transcript, setTranscript] = useState("");
   const [transcriptHeight, setTranscriptHeight] = useState(0);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
@@ -180,7 +216,7 @@ export const CalVideoPremiumFeatures = ({
   const transcription = useTranscription();
   const recording = useRecording();
 
-  useLiveCaptions();
+  useLiveCaptions(captionsEnabled);
 
   const callbacks = createCalVideoCallbacks({
     daily,
@@ -228,23 +264,44 @@ export const CalVideoPremiumFeatures = ({
     });
   }, [transcriptHeight]);
 
-  return transcript ? (
-    <div
-      id="cal-ai-transcription"
-      style={{
-        textShadow: "0 0 20px black, 0 0 20px black, 0 0 20px black",
-        backgroundColor: "rgba(0,0,0,0.6)",
-      }}
-      ref={transcriptRef}
-      className="flex max-h-full justify-center overflow-x-hidden overflow-y-scroll p-2 text-center text-white">
-      {transcript
-        ? transcript.split("\n").map((line, i) => (
-            <Fragment key={`transcript-${i}`}>
-              {i > 0 && <br />}
-              {line}
-            </Fragment>
-          ))
-        : ""}
-    </div>
-  ) : null;
+  return (
+    <>
+      {canUseCaptionToggle ? (
+        <button
+          type="button"
+          aria-pressed={captionsEnabled}
+          aria-label={captionsEnabled ? t("cal_video_cc_turn_off") : t("cal_video_cc_turn_on")}
+          className={classNames(
+            "fixed bottom-28 left-4 z-[101] min-h-10 min-w-10 rounded-md border px-3 py-2 text-sm font-semibold shadow-lg transition-colors",
+            captionsEnabled
+              ? "border-emerald-400/80 bg-emerald-600/90 text-white"
+              : "border-white/20 bg-black/75 text-white hover:bg-black/90"
+          )}
+          disabled={updateProfile.isPending}
+          onClick={toggleClosedCaptions}>
+          {t("cal_video_cc_short_label")}
+        </button>
+      ) : null}
+      <LiveCaptionOverlay captionsEnabled={captionsEnabled} />
+      {transcript ? (
+        <div
+          id="cal-ai-transcription"
+          style={{
+            textShadow: "0 0 20px black, 0 0 20px black, 0 0 20px black",
+            backgroundColor: "rgba(0,0,0,0.6)",
+          }}
+          ref={transcriptRef}
+          className="flex max-h-full justify-center overflow-x-hidden overflow-y-scroll p-2 text-center text-white">
+          {transcript
+            ? transcript.split("\n").map((line, i) => (
+                <Fragment key={`transcript-${i}`}>
+                  {i > 0 && <br />}
+                  {line}
+                </Fragment>
+              ))
+            : ""}
+        </div>
+      ) : null}
+    </>
+  );
 };

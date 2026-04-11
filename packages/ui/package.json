@@ -31,6 +31,8 @@
     "./components/empty-screen": "./components/empty-screen/index.ts",
     "./components/errorBoundary": "./components/errorBoundary/index.ts",
     "./components/form": "./components/form/index.ts",
+    "./components/form/checkbox": "./components/form/checkbox/index.ts",
+    "./components/form/inputs/Label": "./components/form/inputs/Label.tsx",
     "./components/form/date-range-picker/DateRangePicker": "./components/form/date-range-picker/DateRangePicker.tsx",
     "./components/form/timezone-select": "./components/form/timezone-select/index.ts",
     "./components/hover-card": "./components/hover-card/index.tsx",
