@@ -10,15 +10,27 @@ concurrency:
 jobs:
   i18n:
     name: Run i18n
-    if: ${{ secrets.CI_LINGO_DOT_DEV_API_KEY != '' }}
     runs-on: blacksmith-2vcpu-ubuntu-2404
     permissions:
       actions: write
       contents: write
       pull-requests: write
     steps:
+      # Job-level `if` cannot use `secrets` (invalid workflow). Detect presence in a step instead.
+      - name: Check Lingo configuration
+        id: lingo
+        env:
+          LINGO_API_KEY: ${{ secrets.CI_LINGO_DOT_DEV_API_KEY }}
+        run: |
+          if [ -n "$LINGO_API_KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Generate GitHub App token
         id: generate-token
+        if: steps.lingo.outputs.enabled == 'true'
         uses: actions/create-github-app-token@7e473efe3cb98aa54f8d4bac15400b15fad77d94
         with:
           app-id: ${{ secrets.CI_CAL_APP_ID }}
@@ -26,11 +38,16 @@ jobs:
           repositories: 'cal.com'
 
       - uses: actions/checkout@v4
+        if: steps.lingo.outputs.enabled == 'true'
+
       - uses: actions/setup-node@v4
+        if: steps.lingo.outputs.enabled == 'true'
         with:
           node-version: 20
           cache: 'npm'
+
       - uses: lingodotdev/lingo.dev@cee3eb86550ca4905fc99fe90786fb7523288a61 # main
+        if: steps.lingo.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
         with:
